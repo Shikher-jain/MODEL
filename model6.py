@@ -75,7 +75,6 @@ def preprocess_inputs(ndvi_data, sensor_data):
     sensor_scaled = sensor_scaled.reshape((N, T, H, W, C))
     return ndvi_data, sensor_scaled
 
-
 def build_cnn_lstm_model(ndvi_shape, sensor_shape):
     ndvi_input = Input(shape=ndvi_shape, name='ndvi_input')
     x = TimeDistributed(Conv2D(16, (3, 3), activation='relu', padding='same'))(ndvi_input)
@@ -104,8 +103,7 @@ def build_cnn_lstm_model(ndvi_shape, sensor_shape):
     return model
 
 def train_and_evaluate(model, ndvi_data, sensor_data, yield_array, test_size=0.2, epochs=50, batch_size=16):
-    X1_train, X1_val, X2_train, X2_val, y_train, y_val = train_test_split(
-        ndvi_data, sensor_data, yield_array, test_size=test_size, random_state=42)
+    X1_train, X1_val, X2_train, X2_val, y_train, y_val = train_test_split(ndvi_data, sensor_data, yield_array, test_size=test_size, random_state=42)
 
     early = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
     lr_scheduler = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6)
@@ -127,9 +125,7 @@ def main(ndvi_folder, sensor_folder, yield_csv_path):
     target_height = 315  # Corrected from 316 to 315 to match actual data dimensions
     target_width = 316
 
-    ndvi_data, sensor_data, yield_array = load_and_reshape_seq(ndvi_folder, sensor_folder, yield_csv_path,
-                                                               target_height=target_height,
-                                                               target_width=target_width)
+    ndvi_data, sensor_data, yield_array = load_and_reshape_seq(ndvi_folder, sensor_folder, yield_csv_path,target_height=target_height,target_width=target_width)
 
     ndvi_data, sensor_data = preprocess_inputs(ndvi_data, sensor_data)
 
@@ -143,9 +139,14 @@ def main(ndvi_folder, sensor_folder, yield_csv_path):
 
     train_and_evaluate(model, ndvi_data, sensor_data, yield_array)
 
+    
+    # ✅ Save the trained model
+    model.save("cnn_lstm_model.h5")
+    print("Model saved as cnn_lstm_model.h5")
+
 
 if __name__ == "__main__":
     ndvi_folder = r"data\ndvi"
     sensor_folder = r"data\sensor"
-    yield_csv = r"data\yield\Punjab&UP_Yield_2018To2021.csv"
+    yield_csv = r"data\yield\Yield_2018To2021.csv"
     main(ndvi_folder, sensor_folder, yield_csv)
