@@ -1,62 +1,67 @@
+# app.py
 
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import JSONResponse
 import numpy as np
 import tensorflow as tf
-import tempfile, zipfile, os
+import joblib
+import tempfile
 from utils.preprocess import preprocess_input
 
-app = FastAPI(title="Crop Yield Prediction API")
+app = FastAPI(title="Crop Yield Prediction API (No ZIP)")
 
-MODEL_PATH = "model.h5"
-model = tf.keras.models.load_model(MODEL_PATH)
+# Load model and scaler
+model = tf.keras.models.load_model("model.h5")
+scaler = joblib.load("scaler.save")
 
 @app.get("/")
 def root():
-    return {"message": "Crop Yield Prediction API is running!"}
+    return {"message": "🌾 Crop Yield API is up! Upload NDVI and Sensor files."}
+
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
-    """
-    Accepts a .zip file containing:
-      - NDVI .npy sequence
-      - sensor .npy sequence
-    Returns yield or crop health prediction.
-    """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        zip_path = os.path.join(tmpdir, "input.zip")
-        with open(zip_path, "wb") as buffer:
-            buffer.write(await file.read())
+async def predict(
+    ndvi_file: UploadFile = File(..., description="NDVI heatmap .npy file"),
+    sensor_file: UploadFile = File(..., description="Sensor .npy file (5 channels)")
+):
+    try:
+        # --- Save files temporarily ---
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ndvi_path = f"{tmpdir}/ndvi.npy"
+            sensor_path = f"{tmpdir}/sensor.npy"
 
-        # Extract uploaded zip
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(tmpdir)
+            with open(ndvi_path, "wb") as f:
+                f.write(await ndvi_file.read())
+            with open(sensor_path, "wb") as f:
+                f.write(await sensor_file.read())
 
-        ndvi_files = sorted([os.path.join(tmpdir, f) for f in os.listdir(tmpdir) if "ndvi" in f and f.endswith(".npy")])
-        sensor_files = sorted([os.path.join(tmpdir, f) for f in os.listdir(tmpdir) if "sensor" in f and f.endswith(".npy")])
+            # --- Load files ---
+            ndvi = np.load(ndvi_path)
+            sensor = np.load(sensor_path)
 
-        if not ndvi_files or not sensor_files:
-            return {"error": "Missing NDVI or sensor .npy files in zip."}
+            # --- Ensure channel dims ---
+            if ndvi.ndim == 2:
+                ndvi = ndvi[..., np.newaxis]  # (H, W, 1)
 
-        # Load and reshape sequences
-        time_steps = len(ndvi_files)
-        ndvi_seq = np.stack([np.load(f) for f in ndvi_files], axis=0)
-        sensor_seq = np.stack([np.load(f) for f in sensor_files], axis=0)
+            if sensor.ndim == 2:
+                sensor = sensor[..., np.newaxis]  # (H, W, 1)
 
-        # Ensure proper dimensions
-        if ndvi_seq.ndim == 3:
-            ndvi_seq = ndvi_seq[..., np.newaxis]
-        if sensor_seq.ndim == 3:
-            sensor_seq = sensor_seq[..., np.newaxis]
+            # --- Add time & batch dims ---
+            ndvi = np.expand_dims(ndvi, axis=0)   # (1, H, W, C)
+            ndvi = np.expand_dims(ndvi, axis=1)   # (1, 1, H, W, C)
 
-        ndvi_seq = np.expand_dims(ndvi_seq, axis=0)      # (1, T, H, W, 1)
-        sensor_seq = np.expand_dims(sensor_seq, axis=0)  # (1, T, H, W, 5)
+            sensor = np.expand_dims(sensor, axis=0)
+            sensor = np.expand_dims(sensor, axis=1)
 
-        ndvi_seq, sensor_seq = preprocess_input(ndvi_seq, sensor_seq)
+            # --- Preprocess ---
+            ndvi, sensor = preprocess_input(ndvi, sensor, scaler)
 
-        # Prediction
-        prediction = model.predict([ndvi_seq, sensor_seq])[0][0]
-        return {"predicted_yield": float(prediction)}
+            # --- Predict ---
+            prediction = model.predict([ndvi, sensor])[0][0]
+            return {"predicted_yield": round(float(prediction), 2)}
 
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 '''
 uvicorn app:app --reload
