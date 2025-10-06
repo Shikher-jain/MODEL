@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, UploadFile, File
 import numpy as np
 import tensorflow as tf
@@ -6,7 +7,7 @@ from utils.preprocess import preprocess_input
 
 app = FastAPI(title="Crop Yield Prediction API")
 
-MODEL_PATH = ".h5"
+MODEL_PATH = "model.h5"
 model = tf.keras.models.load_model(MODEL_PATH)
 
 @app.get("/")
@@ -55,7 +56,6 @@ async def predict(file: UploadFile = File(...)):
         # Prediction
         prediction = model.predict([ndvi_seq, sensor_seq])[0][0]
         return {"predicted_yield": float(prediction)}
-
 
 
 '''
